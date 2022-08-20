@@ -1,0 +1,70 @@
+from collections import OrderedDict
+import torch.nn as nn
+import torch as th
+import torch.nn.functional as F
+
+
+class SPPLayer(nn.Module):
+
+    def __init__(self, num_levels, pool_type='max_pool'):
+        super(SPPLayer, self).__init__()
+
+        self.num_levels = num_levels
+        self.pool_type = pool_type
+
+    def forward(self, x):
+        bs, c, h, w = x.size()
+        pooling_layers = []
+        # 自定义多层池化，池化大小由特征图决定，最终得到的大小为 n * channel(特征图通道数)
+        for i in range(self.num_levels):
+            kernel_size = h // (2 ** i) # 池化大小由特征图决定
+            if self.pool_type == 'max_pool':
+                tensor = F.max_pool2d(x, kernel_size=kernel_size,
+                                      stride=kernel_size).view(bs, -1)
+            else:
+                tensor = F.avg_pool2d(x, kernel_size=kernel_size,
+                                      stride=kernel_size).view(bs, -1)
+            pooling_layers.append(tensor)
+        x = th.cat(pooling_layers, dim=-1)
+        return x
+
+class DetectionNetSPP(nn.Module):
+    """
+    Expected input size is 64x64
+    """
+
+    def __init__(self, spp_level=3):
+        super(DetectionNetSPP, self).__init__()
+        self.spp_level = spp_level
+        self.num_grids = 0
+        for i in range(spp_level):
+            self.num_grids += 2**(i*2)
+        print(self.num_grids)
+
+        self.conv_model = nn.Sequential(OrderedDict([
+          ('conv1', nn.Conv2d(3, 128, 3)),
+          ('relu1', nn.ReLU()),
+          ('pool1', nn.MaxPool2d(2)),
+          ('conv2', nn.Conv2d(128, 128, 3)),
+          ('relu2', nn.ReLU()),
+          ('pool2', nn.MaxPool2d(2)),
+          ('conv3', nn.Conv2d(128, 128, 3)),
+          ('relu3', nn.ReLU()),
+          ('pool3', nn.MaxPool2d(2)),
+          ('conv4', nn.Conv2d(128, 128, 3)),
+          ('relu4', nn.ReLU())
+        ]))
+
+        self.spp_layer = SPPLayer(spp_level)
+
+        self.linear_model = nn.Sequential(OrderedDict([
+          ('fc1', nn.Linear(self.num_grids*128, 1024)),
+          ('fc1_relu', nn.ReLU()),
+          ('fc2', nn.Linear(1024, 2)),
+        ]))
+
+    def forward(self, x):
+        x = self.conv_model(x)
+        x = self.spp_layer(x)
+        x = self.linear_model(x)
+        return x
