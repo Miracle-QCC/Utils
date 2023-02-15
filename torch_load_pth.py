@@ -10,5 +10,6 @@ def load_model(model, checkpoint):
     
     model_dict.update(new_dict)
     model.load_state_dict(model_dict)
+    
 
     return model
